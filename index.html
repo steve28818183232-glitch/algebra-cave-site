@@ -170,8 +170,6 @@ canvas{width:100%;display:block;image-rendering:pixelated}
 <script>
 /* ===== 管理者設定：架站前請填好這一區 ===== */
 window.FIREBASE_CONFIG={apiKey:"AIzaSyC_vjxeOio6MPEjk3WRtyK_q2s8LG0BlzQ",authDomain:"math-dcef8.firebaseapp.com",projectId:"math-dcef8",appId:"1:383684796882:web:2e1fe05c2ae66acc9ca80b",databaseURL:"https://math-dcef8-default-rtdb.asia-southeast1.firebasedatabase.app"};
-/* AI 啾比導師的雲端網址（部署 Cloud Function 後填入；空白時使用內建導師） */
-window.AI_ENDPOINT="";
 window.GAME_INFO={owner:"游明澤",contact:"slime28818183232@gmail.com",retainMonths:12,region:"Google Cloud asia-east1（台灣）"};
 /* ======================================== */
 </script>
@@ -190,8 +188,7 @@ if(C&&C.apiKey&&!(window.BK&&window.BK.ready)){try{
   updatePw:p=>A.updatePassword(auth.currentUser,p),delUser:()=>A.deleteUser(auth.currentUser),
   get:async p=>{const x=await F.getDoc(d(p));return x.exists()?x.data():null},
   set:(p,o,m)=>F.setDoc(d(p),o,{merge:!!m}),del:p=>F.deleteDoc(d(p)),
-  list:async(c,f,n)=>(await F.getDocs(F.query(F.collection(db,c),F.orderBy(f,'desc'),F.limit(n)))).docs.map(x=>({id:x.id,...x.data()})),
-  idToken:()=>auth.currentUser?auth.currentUser.getIdToken():Promise.resolve(null)};
+  list:async(c,f,n)=>(await F.getDocs(F.query(F.collection(db,c),F.orderBy(f,'desc'),F.limit(n)))).docs.map(x=>({id:x.id,...x.data()}))};
  if(RD){const rdb=RD.getDatabase(app),r=p=>RD.ref(rdb,p);window.BK.rt={set:(p,v)=>RD.set(r(p),v),update:(p,v)=>RD.update(r(p),v),push:(p,v)=>RD.push(r(p),v),remove:p=>RD.remove(r(p)),
   once:async p=>(await RD.get(r(p))).val(),on:(p,cb)=>RD.onValue(r(p),x=>cb(x.val()),()=>{}),key:p=>RD.push(r(p)).key,onDisc:p=>RD.onDisconnect(r(p)).remove(),ts:()=>RD.serverTimestamp(),
   last:(p,ch,n,cb)=>RD.onValue(RD.query(r(p),RD.orderByChild(ch),RD.limitToLast(n)),x=>{const o=[];x.forEach(y=>{o.push({id:y.key,...y.val()})});cb(o)},()=>{})}}
@@ -7187,7 +7184,7 @@ const PRIV2 = () => {
     esc(g.region) +
     "）。管理者可以看到你的「學習摘要」（暱稱、登入次數、遊玩時間、答題數與正確率、通關章節）；完整存檔只有你自己讀得到；其他玩家看不到你的資料。資料不會出售或提供給其他人。</p>" +
     '<p style="margin:0 0 6px"><b>多人功能</b>：登入後，其他玩家可以看到你的<b>暱稱、外觀、在萬卷書閣的位置、聊天訊息與排行榜分數</b>（請不要用真實姓名當暱稱）。多人資料存放在 Google Firebase Realtime Database（asia-southeast1，新加坡）。聊天訊息會自動過濾不雅字眼與電話、Email 等個人資料，保留 24 小時後刪除；被檢舉的訊息會保留給管理者審查。你可以隨時在設定中關閉聊天或封鎖其他玩家。</p>' +
-    '<p style="margin:0 0 6px"><b>AI 啾比導師</b>：導師會讀取你的遊戲進度來給建議。若管理者有開啟雲端 AI，你輸入的問題和學習進度摘要（不含帳號、暱稱）會傳送給 Anthropic 公司的 AI 服務產生回答；未開啟時，所有建議都在你的裝置上產生，不會上傳。</p>' +
+    '<p style="margin:0 0 6px"><b>啾比導師</b>：導師會讀取你的遊戲進度來給建議。所有建議都在你的裝置上產生，你輸入的問題不會上傳。</p>' +
     '<p style="margin:0 0 6px"><b>你的權利</b>（個人資料保護法第 3 條）：查詢或閱覽、索取複製本（「帳號與隱私」→ 匯出我的資料）、補充或更正（修改暱稱）、停止蒐集處理利用及刪除（刪除帳號）。其他需求請聯絡蒐集者。</p>' +
     '<p style="margin:0 0 6px"><b>不提供的影響</b>：不註冊也能以訪客身分遊玩，只是進度只存在這台裝置。</p>' +
     '<p style="margin:0 0 6px"><b>未成年人</b>：未滿 18 歲，請先取得家長或監護人（法定代理人）同意再註冊。</p>' +
@@ -10508,10 +10505,10 @@ function lbBody() {
   );
 }
 
-// ===== js/ext/ai-tutor.js =====
-// AI 啾比導師（有設定 AI_ENDPOINT 時用雲端，否則用內建回答）
+// ===== js/ext/tutor.js =====
+// 啾比導師：依遊戲進度給建議（全部在裝置上產生，不連網）
 // （從 _new/科學洞窟遊戲.html 移植，2026-11-19）
-/* ===== AI 啾比導師 ===== */
+/* ===== 啾比導師 ===== */
 const CHAT = [];
 function progressCtx() {
   const subs = [
@@ -10650,39 +10647,8 @@ function advise(text) {
   if (c.geo >= 40 && !c.owned.length) L.push("你有 " + c.geo + " 金幣了，可以去叮叮的店買第一枚徽章！");
   return L.slice(0, 4).join("\n");
 }
-async function askAI(text) {
-  const ep = window.AI_ENDPOINT;
-  if (ep && ACC.st === "on" && window.BK && BK.idToken) {
-    try {
-      const tk = await BK.idToken();
-      const ctx = progressCtx();
-      const r = await fetch(ep, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: "Bearer " + tk },
-        body: JSON.stringify({
-          message: String(text).slice(0, 200),
-          context: {
-            subjects: ctx.subs.map((s) => ({
-              n: s.n,
-              known: s.k,
-              total: s.t,
-              cleared: s.c,
-              chapters: s.tot,
-              wrong: s.w,
-            })),
-            next: ctx.next.map((z) => SNM[z]),
-            coins: ctx.geo,
-            wrong: ctx.wrong,
-            abilities: ctx.abil,
-          },
-        }),
-      });
-      if (r.ok) {
-        const j = await r.json();
-        if (j && j.reply) return clean(String(j.reply).slice(0, 400));
-      }
-    } catch (e) {}
-  }
+// 回答學生的問題：依遊戲進度在裝置上產生建議（不連網）
+function askTutor(text) {
   return advise(text);
 }
 function openAI() {
@@ -10729,7 +10695,7 @@ function openAI() {
       }
       CHAT.push({ me: 1, t: q }, { me: 0, t: "……" });
       draw();
-      const a = await askAI(q);
+      const a = askTutor(q);
       CHAT[CHAT.length - 1].t = a;
       draw();
     };
@@ -10752,7 +10718,7 @@ function openAI() {
     x.onclick = async () => {
       CHAT.push({ me: 1, t: q }, { me: 0, t: "……" });
       draw();
-      const a = await askAI(q);
+      const a = askTutor(q);
       CHAT[CHAT.length - 1].t = a;
       draw();
     };
