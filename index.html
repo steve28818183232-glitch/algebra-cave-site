@@ -9512,8 +9512,8 @@ function mpTick() {
       MP.lastPos = now;
       R.update(me, {
         map: key,
-        // 稱號代號；「神」和編號稱號由資料庫規則檢查資格
-        ti: typeof TL !== "undefined" && TL.eq && hasTitle(TL.eq) ? TL.eq : "",
+        // 稱號代號：只送伺服器驗證得過的（titlecheck.js 的 titlePublic，規則也會檢查；不合格整筆更新會失敗）
+        ti: typeof titlePublic === "function" && TL.eq && hasTitle(TL.eq) && titlePublic(TL.eq) ? TL.eq : "",
         on: typeof TL !== "undefined" && TL.eq === "ord" ? TL.ord : null,
         x: Math.round(P.x),
         y: Math.round(P.y),
@@ -13435,7 +13435,8 @@ function openMenu(more) {
       ["💾 匯出存檔", exportSave],
       ["📂 匯入存檔", importSave],
     ];
-    if (ACC.admin) L.push(["📊 後台紀錄", () => openAdmin()], ["🚩 檢舉紀錄", () => openReports()]);
+    if (ACC.admin)
+      L.push(["📊 後台紀錄", () => openAdmin()], ["🚩 檢舉紀錄", () => openReports()], ["🎖 稱號管理", () => openTitleAdmin()]);
     L.forEach(([t, f]) => {
       const e = document.createElement("button");
       e.textContent = t;
@@ -18126,8 +18127,9 @@ function openChar(tab) {
   const list = document.createElement("div");
   list.style.cssText = "max-height:38vh;overflow:auto";
   b.append(list);
-  const item = (label, sub, on, ok, f, col) => {
+  const item = (label, sub, on, ok, f, col, tid) => {
     const e = document.createElement("button");
+    if (tid) e.dataset.tid = tid;
     e.className = "mi";
     e.style.cssText = "text-align:left;" + (on ? "background:#fff2c4;border-color:#a8742a;" : "") + (ok ? "" : "opacity:.55;");
     e.innerHTML =
@@ -18165,6 +18167,7 @@ function openChar(tab) {
         own,
         () => (TL.eq = id),
         own ? TCOL[t.r] : null,
+        id,
       );
     });
   } else if (CHT === "outfit") {
@@ -18627,6 +18630,268 @@ function openSeason() {
   $("qc").textContent = "關閉";
   $("qc").style.display = "block";
   $("qc").onclick = close;
+  $("q").classList.add("on");
+}
+
+// ===== js/ext/titlecheck.js =====
+// 稱號防偽造＋管理員稱號管理（2026-11-20）
+// 原則：存檔在學生自己的裝置上，改得動；所以「別人看得到的稱號」一律要能用伺服器上的資料驗證。
+//   ・神、全服編號：special/、order/（之前就有）
+//   ・登塔者、雲端登頂者：lb/{uid}/tower（排行榜，規則限制每次最多 +20）
+//   ・冬季稱號：ev/{uid}（活動紀錄，規則限制每次雪花最多 +25、通關最多 +1、間隔 15 秒）→ 達標後寫 evt/{uid}/{稱號}
+//   ・管理員核准：grants/{uid}/{稱號}
+//   ・管理員撤銷：trevoke/{uid}/{稱號}；禁止顯示：tban/{uid}
+// 其他稱號（任務、隱藏）只有自己看得到。presence 的 ti 由資料庫規則檢查，規則跟 titlePublic() 要一致。
+// 每個人的稱號清單同步到 titles/{uid}，管理員在「稱號管理」可以檢查、撤銷、核准、禁止。
+
+/* ---------- 伺服器上的資料（自己的） ---------- */
+const TLS = { ready: false, grants: {}, revoke: {}, ban: false, tower: 0, evt: {}, ev: null, unsub: [] };
+const TL_LB = { q11: 3, h_tower: 20 }; // 用排行榜塔層驗證的稱號
+function titlePublic(id) {
+  if (!id || !TLS.ready || TLS.ban || TLS.revoke[id]) return false;
+  if (id === "god") return !!TL.god;
+  if (id === "ord") return TL.ord > 0 && TL.ord <= 100;
+  if (TL_LB[id]) return TLS.tower >= TL_LB[id];
+  return !!TLS.evt[id] || !!TLS.grants[id];
+}
+function tlsStart() {
+  if (TLS.started || !mpOK() || !MP.uid) return;
+  TLS.started = true;
+  const R = BK.rt,
+    u = MP.uid;
+  const on = (p, f) => TLS.unsub.push(R.on(p, (v) => f(v)));
+  on("grants/" + u, (v) => (TLS.grants = v || {}));
+  on("evt/" + u, (v) => (TLS.evt = v || {}));
+  on("lb/" + u + "/tower", (v) => (TLS.tower = +v || 0));
+  on("tban/" + u, (v) => {
+    const was = TLS.ban;
+    TLS.ban = !!v;
+    if (TLS.ban && !was && TLS.ready) msg("⚠ 管理員暫停了你的稱號顯示", 300);
+  });
+  on("trevoke/" + u, (v) => {
+    TLS.revoke = v || {};
+    // 被撤銷的稱號從自己的清單拿掉
+    let ch = false;
+    for (const id in TLS.revoke)
+      if (TL.own[id]) {
+        delete TL.own[id];
+        ch = true;
+        if (TLS.ready) msg("⚠ 稱號「" + titleName(id) + "」已被管理員撤銷", 300);
+      }
+    if (TLS.revoke[TL.eq]) TL.eq = "";
+    if (ch) saveG(true);
+  });
+  R.once("ev/" + u)
+    .then((v) => (TLS.ev = v || null))
+    .catch(() => {});
+  setTimeout(() => (TLS.ready = true), 1500);
+}
+
+/* ---------- 同步：稱號清單、冬季紀錄 ---------- */
+let TLS_SIG = "",
+  TLS_EVT = 0;
+async function tlsSync() {
+  if (!TLS.ready) return;
+  const R = BK.rt,
+    u = MP.uid;
+  // 1) 稱號清單（給管理員看）：有變化才寫
+  if (!TL.at) TL.at = {};
+  for (const id in TL.own) if (!TL.at[id]) TL.at[id] = Date.now();
+  const own = {};
+  for (const id in TL.own) own[id] = TL.at[id] || Date.now();
+  const rec = { nick: clean(ACC.nick).slice(0, 12) || "冒險者", eq: TL.eq || "", own, t: Date.now() };
+  const sig = JSON.stringify([rec.nick, rec.eq, Object.keys(own).sort()]);
+  if (sig !== TLS_SIG) {
+    try {
+      await R.set("titles/" + u, rec);
+      TLS_SIG = sig;
+    } catch (e) {}
+  }
+  // 2) 冬季紀錄：伺服器的數字一步一步追上本機（規則有上限和間隔）
+  if (Date.now() - TLS_EVT < 16000 || !EV.id || !EV.id.startsWith("winter")) return;
+  const sv = TLS.ev && TLS.ev.id === EV.id ? TLS.ev : { id: EV.id, flakes: 0, clears: 0, t: 0 };
+  const want = {
+    id: EV.id,
+    flakes: Math.min(EV.flakes, sv.flakes + 25),
+    clears: Math.min(EV.clears, sv.clears + 1),
+    t: Date.now(),
+  };
+  if (TLS.ev && want.id === TLS.ev.id && want.flakes === TLS.ev.flakes && want.clears === TLS.ev.clears) {
+    tlsClaim();
+    return;
+  }
+  TLS_EVT = Date.now();
+  try {
+    await R.set("ev/" + u, want);
+    TLS.ev = want;
+    tlsClaim();
+  } catch (e) {}
+}
+// 冬季稱號：伺服器紀錄達標了，就寫 evt（規則會再檢查一次）
+const EVT_NEED = {
+  w_memo: (e) => true,
+  w_trav: (e) => e.flakes >= 30,
+  w_guard: (e) => e.clears >= 3,
+  w_flake: (e) => e.flakes >= 100,
+};
+async function tlsClaim() {
+  const e = TLS.ev;
+  if (!e || !e.id.startsWith("winter")) return;
+  for (const id in EVT_NEED)
+    if (TL.own[id] && !TLS.evt[id] && EVT_NEED[id](e))
+      try {
+        await BK.rt.set("evt/" + MP.uid + "/" + id, true);
+      } catch (er) {}
+}
+setInterval(() => {
+  if (!(mpOK() && MP.on && ACC.st === "on")) return;
+  tlsStart();
+  tlsSync();
+}, 4000);
+
+/* ---------- 角色介面：標示誰看得到 ---------- */
+{
+  const _oc = openChar;
+  openChar = function (tab) {
+    _oc(tab);
+    if (CHT !== "title") return;
+    const note = document.createElement("div");
+    note.style.cssText = "font-size:12px;color:#7a5a3a;margin:2px 0 6px;line-height:1.5";
+    note.textContent = !mpOK()
+      ? "登入帳號後，可以驗證的稱號才會讓其他玩家看到。"
+      : TLS.ban
+        ? "⚠ 管理員暫停了你的稱號顯示，其他玩家看不到你的稱號。"
+        : "🌐＝其他玩家看得到（伺服器驗證過）　🔒＝只有自己看得到";
+    const list = $("qo").children[1];
+    $("qo").insertBefore(note, list);
+    if (!mpOK()) return;
+    // 在每個稱號後面加上 🌐／🔒
+    [...list.querySelectorAll("button")].forEach((bt, i) => {
+      const id = bt.dataset.tid;
+      if (!id || !hasTitle(id)) return;
+      const s = bt.querySelector("b");
+      if (s) s.textContent += titlePublic(id) ? "　🌐" : "　🔒";
+    });
+  };
+}
+
+/* ---------- 管理員：稱號管理 ---------- */
+async function openTitleAdmin(sel) {
+  if (!ACC.admin || !mpOK()) return;
+  let all = {},
+    ban = {},
+    rev = {},
+    gr = {};
+  try {
+    [all, ban, rev, gr] = await Promise.all(["titles", "tban", "trevoke", "grants"].map((p) => BK.rt.once(p)));
+  } catch (e) {
+    return msg("讀取失敗：" + e.message, 200);
+  }
+  all = all || {};
+  ban = ban || {};
+  rev = rev || {};
+  gr = gr || {};
+  const fmt = (t) => {
+    const d = new Date(t);
+    return d.getMonth() + 1 + "/" + d.getDate() + " " + String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  };
+  Qs = { t: 1 };
+  K.l = K.r = K.j = K.s = K.a = K.u = K.d = 0;
+  if (typeof qpHide === "function") qpHide();
+  const b = $("qo");
+  b.innerHTML = "";
+  const btn = (t, f, st) => {
+    const e = document.createElement("button");
+    e.className = "mi";
+    e.style.cssText = "text-align:left;" + (st || "");
+    e.innerHTML = t;
+    e.onclick = f;
+    b.append(e);
+    return e;
+  };
+  const act = async (p, v) => {
+    try {
+      if (v === null) await BK.rt.remove(p);
+      else await BK.rt.set(p, v);
+    } catch (e) {
+      msg("操作失敗：" + e.message, 200);
+    }
+    openTitleAdmin(sel);
+  };
+  if (!sel) {
+    const L = Object.entries(all).map(([uid, r]) => {
+      const ts = Object.values(r.own || {});
+      // 可疑度：1 小時內拿到的稱號數
+      const recent = ts.filter((t) => Date.now() - t < 3600e3).length;
+      return { uid, r, n: ts.length, last: Math.max(0, ...ts), recent };
+    });
+    L.sort((a, b2) => b2.last - a.last);
+    $("qh").textContent = "🎖 稱號管理（" + L.length + " 位玩家）";
+    $("qt").textContent = "依最近取得稱號排序。紅色＝1 小時內拿到 5 個以上稱號，值得看一下。點玩家可以撤銷、核准或禁止顯示。";
+    if (!L.length) btn("目前還沒有玩家的稱號紀錄", () => {});
+    L.forEach((x) =>
+      btn(
+        (ban[x.uid] ? "⛔ " : "") +
+          "<b>" +
+          esc(x.r.nick || "冒險者") +
+          "</b>　稱號 " +
+          x.n +
+          " 個" +
+          (x.recent >= 5 ? '　<span style="color:#c0392b">⚠ 1 小時內 ' + x.recent + " 個</span>" : "") +
+          '<br><span style="font-size:12px;color:#7a5a3a">戴著：' +
+          esc(titleName(x.r.eq) || "無") +
+          "　｜　最近取得 " +
+          (x.last ? fmt(x.last) : "—") +
+          "</span>",
+        () => openTitleAdmin(x.uid),
+        x.recent >= 5 ? "border-color:#c0392b;" : "",
+      ),
+    );
+  } else {
+    const r = all[sel] || { own: {} };
+    $("qh").textContent = "🎖 " + (r.nick || "冒險者") + " 的稱號";
+    $("qt").textContent =
+      (ban[sel] ? "⛔ 這位玩家目前被禁止顯示稱號。\n" : "") +
+      "撤銷：從玩家的清單拿掉，以後也不能再顯示。\n核准公開：讓其他玩家看得到這個稱號（任務、隱藏稱號預設只有自己看得到）。";
+    $("qt").style.whiteSpace = "pre-line";
+    btn("◀ 回到玩家清單", () => openTitleAdmin());
+    btn(ban[sel] ? "✅ 解除禁止顯示稱號" : "⛔ 禁止這位玩家顯示稱號", () => act("tban/" + sel, ban[sel] ? null : true));
+    const ids = Object.keys(r.own || {}).sort((a, b2) => r.own[b2] - r.own[a]);
+    for (const id of Object.keys((rev && rev[sel]) || {})) if (!ids.includes(id)) ids.push(id);
+    ids.forEach((id) => {
+      const rv = rev[sel] && rev[sel][id],
+        g2 = gr[sel] && gr[sel][id];
+      const head =
+        "<b>《" +
+        esc(titleName(id) || id) +
+        "》</b>" +
+        (rv ? "　（已撤銷）" : g2 ? "　🌐 已核准" : "") +
+        '<br><span style="font-size:12px;color:#7a5a3a">' +
+        (r.own[id] ? "取得 " + fmt(r.own[id]) + "　｜　" : "") +
+        esc((TITLES[id] && TITLES[id].d) || "") +
+        "</span>";
+      btn(head, () => {}, "cursor:default;");
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;gap:6px;margin:-2px 0 8px 12px";
+      const mk = (t, f) => {
+        const e = document.createElement("button");
+        e.className = "chip";
+        e.textContent = t;
+        e.onclick = f;
+        row.append(e);
+      };
+      mk(rv ? "恢復" : "撤銷", () => act("trevoke/" + sel + "/" + id, rv ? null : true));
+      if (!rv && id !== "god" && id !== "ord") mk(g2 ? "取消核准" : "核准公開", () => act("grants/" + sel + "/" + id, g2 ? null : true));
+      b.append(row);
+    });
+  }
+  $("qc").textContent = "關閉";
+  $("qc").style.display = "block";
+  $("qc").onclick = () => {
+    $("q").classList.remove("on");
+    $("qt").style.whiteSpace = "";
+    Qs = null;
+  };
   $("q").classList.add("on");
 }
 
