@@ -5113,6 +5113,7 @@ function buildSave() {
     HAT,
     TUTD,
     TUTP,
+    QS: typeof QS !== "undefined" ? QS : undefined,
     OWNO,
     SF: [SOULED, FIXED],
     F: [won1, FINALD],
@@ -5205,6 +5206,8 @@ function applySave(s) {
   OUTFIT = s.OUTFIT;
   TUTD = s.TUTD || 0;
   TUTP = s.TUTP || 0;
+  // 任務進度（js/ext/quest.js）；舊存檔沒有就從第一個任務開始
+  if (typeof QS !== "undefined" && s.QS) QS = Object.assign({ i: 0, acc: false, base: 0, cnt: 0, seen: {} }, s.QS);
   HAT = s.HAT;
   Object.assign(OWNO, s.OWNO);
   s.CL.forEach((v, i) => (CL[i] = v));
@@ -8716,6 +8719,16 @@ function drawTutSigns() {
 function afterAuth() {
   if (AFTERDONE) return;
   AFTERDONE = true;
+  // 回鍋玩家（看過序章、通關過章節或完成過教學）不再播序章，也不強制進教學關。
+  // 登入時雲端存檔已經先載入（onLogin → applyCloud），所以這裡讀到的是最新進度。
+  const back = (LSEEN || 0) >= 2 || TUTD || CL.some((v) => v > 0);
+  if (back) {
+    if ((LSEEN || 0) < 2) {
+      LSEEN = 2;
+      saveG(true);
+    }
+    return;
+  }
   setTimeout(
     () =>
       playStory("pro", () => {
@@ -13408,6 +13421,7 @@ function openMenu(more) {
           msg(MUTE ? "音效關閉" : "音效開啟", 90);
         },
       ],
+      ["📜 任務日誌", () => openQuestLog()],
       ["💾 匯出存檔", exportSave],
       ["📂 匯入存檔", importSave],
     ];
@@ -17368,6 +17382,500 @@ function lobbyHUD() {
       lobbyHUD();
     } catch (e) {}
   };
+}
+
+// ===== js/ext/quest.js =====
+// 任務引導（2026-11-20）：NPC 頭上「！」可接任務、「？」可回報，畫面右側任務追蹤、方向箭頭、任務日誌。
+// 注意：mainquest.js 已經有 QUESTS（主線章節），這裡的任務清單叫 GQUESTS，別撞名。
+// 任務是一條主線（依序接），進度存在存檔的 QS。
+//   QS.i   目前第幾個任務（全部完成時 = GQUESTS.length）
+//   QS.acc 是否已接下
+//   QS.base 接任務當下的計數（計數型任務用）
+//   QS.cnt  累計答對題數（由 ans() 包裝計算）
+//   QS.seen 接任務後去過的地圖（到訪型任務用）
+
+/* ---------- 任務資料 ---------- */
+// NPC 代號：'1' 墨爺爺、'2' 叮叮、'3' 小錯、'A' 啾比
+const QNPC = {
+  1: { n: "墨爺爺", m: 10, c: 10 },
+  2: { n: "叮叮", m: 11, c: 10 },
+  3: { n: "小錯", m: 12, c: 10 },
+  A: { n: "啾比", m: 6, c: 23 },
+};
+const GQUESTS = [
+  {
+    name: "拜見館長",
+    from: "1",
+    to: "1",
+    type: "talk",
+    goal: "到萬卷書閣的「館長室」找墨爺爺",
+    offer: "你就是新來的冒險者吧？歡迎來到萬卷書閣！先過來讓我看看你。",
+    done: "很好，很有精神！萬卷之境的書被遺忘之霧吞掉了，需要你的力量把知識找回來。",
+    reward: { geo: 20 },
+    auto: true,
+  },
+  {
+    name: "第一道謎題",
+    from: "1",
+    to: "1",
+    type: "count",
+    n: 3,
+    goal: "答對 3 題問號方塊",
+    hint: "☰ 選單 → 學科地圖，挑一章進去撞「？」方塊",
+    offer: "冒險者最重要的武器就是知識。去撞撞看「？」方塊，答對 3 題再回來找我。",
+    done: "答得好！每答對一題，被遺忘的書頁就會回來一點。",
+    reward: { geo: 30 },
+  },
+  {
+    name: "疾風的力量",
+    from: "1",
+    to: "1",
+    type: "state",
+    test: () => !!A.dash,
+    goal: "取得「衝刺」能力",
+    hint: "☰ 學科地圖 →「★ 主線」→ 疾風峽谷",
+    offer: "有些路光用走的是過不去的。去主線的「疾風峽谷」，把衝刺的力量帶回來吧！",
+    done: "按 C 就能衝刺了！有了這個，很多地方都去得了。",
+    reward: { geo: 50, cry: 2 },
+  },
+  {
+    name: "徽章商人",
+    from: "1",
+    to: "2",
+    type: "talk",
+    goal: "到「徽章商店」找叮叮",
+    offer: "隔壁的叮叮收集了很多神奇的徽章，帶上一枚冒險會輕鬆不少。去打聲招呼吧！",
+    done: "嗨嗨！墨爺爺介紹來的？歡迎歡迎～我這裡的徽章每一枚都有特別的力量喔！",
+    reward: { geo: 20 },
+  },
+  {
+    name: "第一枚徽章",
+    from: "2",
+    to: "2",
+    type: "state",
+    test: () => Object.keys(OWNB).length > 0,
+    goal: "買下任何一枚徽章",
+    hint: "在徽章商店選一枚買下（金幣不夠就先去答題賺）",
+    offer: "來挑一枚喜歡的徽章吧！金幣不夠的話，答對題目、打倒迷糊蟲都能賺到。",
+    done: "眼光真好！記得在學科之書裡把徽章別上，效果才會出現喔。",
+    reward: { geo: 30, ore: 2 },
+  },
+  {
+    name: "錯題幽靈",
+    from: "2",
+    to: "3",
+    type: "talk",
+    goal: "到「錯題小屋」找小錯",
+    offer: "對了，最旁邊的小屋住著一個害羞的幽靈小錯，他一直想交朋友……你去看看他好不好？",
+    done: "你、你是來找我的嗎？我是小錯……我會幫你記住答錯的題目。",
+    reward: { geo: 20 },
+  },
+  {
+    name: "從錯誤中學習",
+    from: "3",
+    to: "3",
+    type: "count",
+    n: 10,
+    goal: "累計答對 10 題",
+    hint: "到任何章節撞「？」方塊；錯題會常常再出現，正好複習",
+    offer: "答錯的題目我都幫你記著，它們會常常回來找你。再去答對 10 題，讓我看看你的進步！",
+    done: "哇……你真的變厲害了！錯題本是你的好朋友，不是敵人喔。",
+    reward: { geo: 40 },
+  },
+  {
+    name: "啾比導師",
+    from: "3",
+    to: "A",
+    type: "talk",
+    goal: "到萬卷書閣找啾比導師",
+    offer: "書閣中間棲木上的啾比，是墨爺爺做的木雕小鳥。不知道下一步做什麼的時候，就去問它吧。",
+    done: "啾啾！我是啾比！以後不知道要做什麼，隨時來問我喔！",
+    reward: { geo: 20 },
+  },
+  {
+    name: "翻開學科之書",
+    from: "A",
+    to: "A",
+    type: "state",
+    test: () => CL.some((v, i) => v > 0 && i !== TZ),
+    goal: "通關任何一個章節",
+    hint: "答夠題數＋碰到終點旗，再到神殿",
+    offer: "每一章都要答夠題數、碰到終點旗，最後去神殿，才算通關。挑一章試試看吧！",
+    done: "第一章通關！書頁變厚了，下一次會更難，獎勵也更多喔。",
+    reward: { geo: 60, cry: 2 },
+  },
+  {
+    name: "一起冒險吧",
+    from: "A",
+    to: "A",
+    type: "visit",
+    m: () => LBY.m,
+    goal: "走進「多人大廳」",
+    hint: "萬卷書閣左邊的「⚔ 多人大廳」大門，按 ↑",
+    offer: "書閣左邊有一扇大門通往多人大廳，可以和同學一起比賽、一起打魔像！去看看吧（要登入帳號才能和別人玩）。",
+    done: "看到其他冒險者了嗎？找同學一起來，學習會更有趣喔！",
+    reward: { geo: 30 },
+  },
+  {
+    name: "知識之塔",
+    from: "A",
+    to: "A",
+    type: "state",
+    test: () => (A.twb || 0) >= 3,
+    goal: "知識之塔爬到第 3 層",
+    hint: "☰ 學科地圖 →「🗼 爬塔」",
+    offer: "聽說有一座越往上題目越難的知識之塔……你能爬到第 3 層嗎？",
+    done: "第 3 層！你的知識已經是貨真價實的了。",
+    reward: { geo: 80, ore: 3 },
+  },
+  {
+    name: "萬卷之境的守護者",
+    from: "A",
+    to: "1",
+    type: "state",
+    test: () => CL.filter((v, i) => v > 0 && i !== TZ).length >= 3,
+    goal: "通關 3 個章節，再回報墨爺爺",
+    hint: "☰ 學科地圖，選還沒通關的章節",
+    offer: "墨爺爺說，等你通關 3 個章節，就要把一個重要的任務交給你。加油！",
+    done: "了不起！從今天起，你就是萬卷之境的守護者。遺忘之霧還很濃，接下來的路就靠你了！",
+    reward: { geo: 150, cry: 4 },
+  },
+];
+
+/* ---------- 狀態 ---------- */
+var QS = { i: 0, acc: false, base: 0, cnt: 0, seen: {} };
+const qCur = () => GQUESTS[QS.i] || null;
+function qProgress(q) {
+  if (!q || !QS.acc) return [0, 1];
+  if (q.type === "talk") return [0, 1];
+  if (q.type === "count") return [Math.min(q.n, QS.cnt - QS.base), q.n];
+  if (q.type === "visit") return [QS.seen[q.m()] ? 1 : 0, 1];
+  return [q.test() ? 1 : 0, 1];
+}
+const qReady = (q) => !!q && QS.acc && q.type !== "talk" && qProgress(q)[0] >= qProgress(q)[1];
+// 第一個任務自動接下（新玩家）
+if (GQUESTS[0].auto && QS.i === 0) QS.acc = true;
+
+/* ---------- 事件：答對題數、到訪地圖 ---------- */
+{
+  const _a = ans;
+  ans = function (ok) {
+    if (ok) QS.cnt = (QS.cnt || 0) + 1;
+    _a(ok);
+  };
+}
+let QWAS = false;
+function questTick() {
+  const q = qCur();
+  if (!q) return;
+  if (QS.acc && q.type === "visit") QS.seen[mapId] = 1;
+  const r = qReady(q);
+  if (r && !QWAS) {
+    sfx("pick");
+    msg("📜 任務目標達成！回去找" + QNPC[q.to].n + "回報", 260);
+  }
+  QWAS = r;
+}
+{
+  const _st = step;
+  step = function () {
+    _st();
+    try {
+      questTick();
+    } catch (e) {}
+  };
+}
+
+/* ---------- 對話 ---------- */
+function qDialog(npc, title, text, btns) {
+  Qs = { t: 1 };
+  K.l = K.r = K.j = K.s = K.a = K.u = 0;
+  const e = $("qp"),
+    sp = npc === "A" ? SPN.bird : SPN[npc];
+  if (e && sp) {
+    e.src = sp.toDataURL();
+    e.style.display = "block";
+  }
+  $("qh").textContent = title;
+  $("qt").textContent = text;
+  $("qt").style.whiteSpace = "pre-line";
+  $("qr").textContent = "";
+  const b = $("qo");
+  b.innerHTML = "";
+  const close = () => {
+    $("q").classList.remove("on");
+    $("qt").style.whiteSpace = "";
+    Qs = null;
+    if (typeof qpHide === "function") qpHide();
+  };
+  btns.forEach(([t, f]) => {
+    const x = document.createElement("button");
+    x.className = "mi";
+    x.textContent = t;
+    x.onclick = () => {
+      close();
+      if (f) f();
+    };
+    b.append(x);
+  });
+  $("qc").style.display = "none";
+  $("q").classList.add("on");
+}
+function rewardText(rw) {
+  const L = [];
+  if (rw.geo) L.push("◆ " + rw.geo);
+  if (rw.ore) L.push("礦石 " + rw.ore);
+  if (rw.cry) L.push("晶石 " + rw.cry);
+  return L.join("　");
+}
+function qComplete(q) {
+  const rw = q.reward || {};
+  geo += rw.geo || 0;
+  INV.ore += rw.ore || 0;
+  INV.cry += rw.cry || 0;
+  QS.i++;
+  QS.acc = false;
+  QWAS = false;
+  sfx("save");
+  saveG(true);
+  const nx = qCur();
+  // 下一個任務也是同一個 NPC 給的 → 接著問（連續任務）
+  const me = q.to;
+  qDialog(me, "✔ 任務完成：" + q.name, q.done + "\n\n獲得：" + rewardText(rw), [
+    [nx && nx.from === me ? "下一個任務 ▶" : "好！", nx && nx.from === me ? () => qOffer(me) : null],
+  ]);
+}
+function qOffer(npc) {
+  const q = qCur();
+  if (!q) return;
+  qDialog(npc, "❗ 任務：" + q.name, q.offer + "\n\n目標：" + q.goal + "\n獎勵：" + rewardText(q.reward || {}), [
+    [
+      "✔ 接受任務",
+      () => {
+        QS.acc = true;
+        QS.base = QS.cnt || 0;
+        QS.seen = {};
+        saveG(true);
+        msg("📜 接下任務：" + q.name, 200);
+      },
+    ],
+    ["等一下再說", null],
+  ]);
+}
+// 和 NPC 說話時先處理任務；有處理就回傳 true
+function questTalk(npc) {
+  const q = qCur();
+  if (!q || Qs) return false;
+  if (QS.acc && q.to === npc && (q.type === "talk" || qReady(q))) {
+    qComplete(q);
+    return true;
+  }
+  if (!QS.acc && q.from === npc) {
+    qOffer(npc);
+    return true;
+  }
+  return false;
+}
+{
+  const _t = talk;
+  talk = function (ch) {
+    if (questTalk(ch)) return;
+    _t(ch);
+  };
+  const _ai = openAI;
+  openAI = function () {
+    if (questTalk("A")) return;
+    _ai();
+  };
+}
+// 這個 NPC 頭上要顯示什麼：'!' 可接、'?' 可回報、'.' 進行中（灰色問號）
+function qMark(npc) {
+  const q = qCur();
+  if (!q) return "";
+  if (!QS.acc) return q.from === npc ? "!" : "";
+  if (q.to !== npc) return "";
+  return q.type === "talk" || qReady(q) ? "?" : ".";
+}
+
+/* ---------- 路線：從現在的地圖要往哪裡走 ---------- */
+// 地圖之間的連接：[從, 到, 出口欄]
+const QLINK = [
+  [5, 6, 36],
+  [6, 5, 4],
+  [6, 10, 27],
+  [6, 11, 33],
+  [6, 12, 39],
+  [10, 6, 3],
+  [11, 6, 3],
+  [12, 6, 3],
+];
+function qRoute(tm, tc) {
+  if (mapId === tm) return { c: tc };
+  if (typeof LBY !== "undefined" && mapId === LBY.m) return { c: LBY.door, hint: "先回萬卷書閣" };
+  const seen = { [mapId]: null },
+    Q = [mapId];
+  while (Q.length) {
+    const m = Q.shift();
+    if (m === tm) break;
+    for (const [a, b, c] of QLINK)
+      if (a === m && !(b in seen)) {
+        seen[b] = [a, c];
+        Q.push(b);
+      }
+  }
+  if (!(tm in seen)) return { hint: "按 R 回家園" };
+  let m = tm;
+  while (seen[m][0] !== mapId) m = seen[m][0];
+  return { c: seen[m][1] };
+}
+// 目前要去的地方（NPC）
+function qTarget() {
+  const q = qCur();
+  if (!q) return null;
+  if (!QS.acc) return QNPC[q.from];
+  if (q.type === "talk" || qReady(q)) return QNPC[q.to];
+  if (q.type === "visit" && q.m() === (typeof LBY !== "undefined" ? LBY.m : -1)) return { n: "多人大廳", m: 6, c: 6 };
+  return null;
+}
+
+/* ---------- 繪圖 ---------- */
+function drawMark(x, y, k) {
+  const b = Math.round(Math.sin(fr / 10) * 3);
+  g.font = "bold 22px sans-serif";
+  g.textAlign = "center";
+  g.lineWidth = 4;
+  g.strokeStyle = "#3a2410";
+  const t = k === "!" ? "!" : "?";
+  g.strokeText(t, x, y + b);
+  g.fillStyle = k === "." ? "#b8b0a0" : "#ffd23a";
+  g.fillText(t, x, y + b);
+}
+function questWorld() {
+  if (!SP2.p_idle0) return;
+  const fy = (OY + 10) * T;
+  // NPC 頭上
+  for (const k in QNPC) {
+    const n = QNPC[k],
+      mk = qMark(k);
+    if (!mk) continue;
+    if (mapId === n.m) {
+      const sp = k === "A" ? SP2.perch || SPN.bird : SPN[k];
+      drawMark(n.c * T + 16, fy - (sp ? sp.height : 40) - (k === "A" ? 30 : 10), mk);
+    } else if (mapId === 6 && n.m >= 10 && n.m <= 12) {
+      // 在書閣：標在 NPC 住的小屋上
+      const hc = [27, 33, 39][n.m - 10];
+      drawMark(hc * T + 16, fy - 66, mk); // 標在小屋門上方（太高會被鏡頭切掉）
+    }
+  }
+  // 方向箭頭
+  const t = qTarget();
+  if (!t || Qs) return;
+  const rt = qRoute(t.m, t.c);
+  if (rt.c === undefined) return;
+  const pc = (P.x + P.w / 2) / T,
+    d = rt.c + 0.5 - pc;
+  if (Math.abs(d) > 1.5) {
+    const ax = P.x + P.w / 2 + Math.sign(d) * 26,
+      ay = P.y - 4 + Math.sin(fr / 8) * 2;
+    g.fillStyle = "rgba(255,210,60,.95)";
+    g.strokeStyle = "#3a2410";
+    g.lineWidth = 2;
+    g.beginPath();
+    g.moveTo(ax + Math.sign(d) * 10, ay);
+    g.lineTo(ax - Math.sign(d) * 4, ay - 8);
+    g.lineTo(ax - Math.sign(d) * 4, ay + 8);
+    g.closePath();
+    g.fill();
+    g.stroke();
+  } else {
+    // 到了：在目標上方畫往下的箭頭
+    const x = rt.c * T + 16,
+      y = fy - 64 + Math.sin(fr / 8) * 4;
+    g.fillStyle = "rgba(255,210,60,.95)";
+    g.strokeStyle = "#3a2410";
+    g.lineWidth = 2;
+    g.beginPath();
+    g.moveTo(x, y + 10);
+    g.lineTo(x - 8, y - 4);
+    g.lineTo(x + 8, y - 4);
+    g.closePath();
+    g.fill();
+    g.stroke();
+  }
+}
+function questHUD() {
+  const q = qCur();
+  if (!q || (typeof BANR !== "undefined" && BANR) || Qs) return;
+  if (typeof LBY !== "undefined" && mapId === LBY.a) return;
+  const L = [];
+  let title, col;
+  const t = qTarget();
+  if (!QS.acc) {
+    title = "❗ 新任務：" + q.name;
+    col = "#ffd23a";
+    L.push("找" + QNPC[q.from].n + "接任務");
+  } else if (q.type === "talk" || qReady(q)) {
+    title = "❓ " + q.name;
+    col = "#ffd23a";
+    L.push(q.type === "talk" ? q.goal : "✔ 完成！回去找" + QNPC[q.to].n);
+  } else {
+    title = "📜 " + q.name;
+    col = "#fff3d6";
+    const [a, b] = qProgress(q);
+    L.push(q.goal + (b > 1 ? "（" + a + "/" + b + "）" : ""));
+    if (q.hint) L.push("💡 " + q.hint);
+  }
+  if (t) {
+    const rt = qRoute(t.m, t.c);
+    if (rt.hint) L.push("➜ " + rt.hint);
+  }
+  g.font = 'bold 12px "Noto Serif TC",serif';
+  const lines = [];
+  L.forEach((s) => lines.push(...wrapTxt(g, s, 176)));
+  const w = 190,
+    h = 26 + lines.length * 15,
+    x0 = cv.width - w - 8,
+    y0 = 112;
+  g.fillStyle = "rgba(20,14,8,.72)";
+  g.fillRect(x0, y0, w, h);
+  g.strokeStyle = "rgba(232,192,112,.8)";
+  g.lineWidth = 1;
+  g.strokeRect(x0 + 0.5, y0 + 0.5, w - 1, h - 1);
+  g.textAlign = "left";
+  g.fillStyle = col;
+  g.fillText(title, x0 + 7, y0 + 17);
+  g.font = '11px "Noto Serif TC",serif';
+  g.fillStyle = "#e8dcc4";
+  lines.forEach((s, i) => g.fillText(s, x0 + 7, y0 + 33 + i * 15));
+}
+{
+  const _dr = draw;
+  draw = function () {
+    _dr();
+    try {
+      wdraw(questWorld);
+      questHUD();
+    } catch (e) {}
+  };
+}
+
+/* ---------- 任務日誌 ---------- */
+function openQuestLog() {
+  const L = GQUESTS.map((q, i) => {
+    const st = i < QS.i ? "✔" : i === QS.i ? (QS.acc ? "▶" : "❗") : "🔒";
+    let s = st + "　" + q.name;
+    if (i === QS.i) {
+      const [a, b] = qProgress(q);
+      s += "\n　　" + (QS.acc ? q.goal + (b > 1 ? "（" + a + "/" + b + "）" : "") : "找" + QNPC[q.from].n + "接任務");
+    }
+    return s;
+  });
+  qDialog(
+    "A",
+    "📜 任務日誌（" + Math.min(QS.i, GQUESTS.length) + " / " + GQUESTS.length + "）",
+    QS.i >= GQUESTS.length ? "所有任務都完成了！你是真正的萬卷之境守護者。\n\n" + L.join("\n") : L.join("\n"),
+    [["關閉", null]],
+  );
 }
 
 // ===== js/ext/questions-extra.js =====
