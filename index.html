@@ -10800,6 +10800,109 @@ function qCat(C, q, rq, nq) {
   QG.coun[0].push(...qTab({ k: "情緒調節策略", f: [["做法"]], rows: ["暫停|先離開現場，讓自己冷靜", "深呼吸|慢慢吸氣、吐氣，放鬆身體", "轉移注意力|做別的事情，例如散步、聽音樂", "書寫|把心情寫在日記裡", "傾訴|找信任的人說說心事", "運動|透過流汗釋放壓力", "正向自我對話|對自己說鼓勵的話", "覺察|先說出「我現在覺得……」"] }));
 })();
 
+// ===== js/data/qgen/extra.js =====
+// 補強：題目種類較少（不到 100 種）的課程。
+(function () {
+  /* 編輯・病句修改 */
+  const BJ = { 語意重複: ["大約有一百人左右參加了活動。", "他每天都天天早起運動。", "我們要互相交流彼此的意見。", "這是一個很美的美景。", "他一個人獨自走回家。", "選手們凱旋歸來。", "我親眼目睹了這場車禍。", "奶奶過分溺愛弟弟。"], 搭配不當: ["他那和藹的笑容浮現在我的耳邊。", "他穿著一件外套和一頂帽子。", "閱讀能增加我們的視野。", "會場上響起了熱烈的掌聲和歡呼的笑容。", "他的學習成績很好看。", "這本書的內容很高大。"], 前後矛盾: ["我們要盡量避免不再犯同樣的錯。", "這部電影很有趣又很無聊。", "全班同學幾乎全部都到齊了。", "我肯定他大概會來。", "為了防止不再發生意外，大家要小心。", "這是我唯一的幾個朋友之一。"], 成分殘缺: ["通過這次活動，使我學到了很多。", "在老師的幫助下，使我進步很多。", "老師在黑板上清楚地寫。", "經過這次比賽，讓大家更團結了。"] };
+  QG.editor[2].push(
+    ...qCat(BJ, (m) => "「" + m + "」的錯誤屬於哪一類？", (c, m) => "下列哪一個句子的毛病是「" + c + "」？", (c, m) => "下列哪一個句子的毛病不是「" + c + "」？"),
+    ...qTab({ k: "病句", f: [["修改後", (x) => "「" + x + "」最好改成？", false]], rows: ["我們要互相交流彼此的意見。|我們要互相交流意見。", "這是一個很美的美景。|這是一個很美的景色。", "他一個人獨自走回家。|他獨自走回家。", "閱讀能增加我們的視野。|閱讀能開闊我們的視野。", "全班同學幾乎全部都到齊了。|全班同學幾乎都到齊了。", "我肯定他大概會來。|我肯定他會來。", "在老師的幫助下，使我進步很多。|在老師的幫助下，我進步很多。", "為了防止不再發生意外，大家要小心。|為了防止再發生意外，大家要小心。", "奶奶過分溺愛弟弟。|奶奶溺愛弟弟。", "他的學習成績很好看。|他的學習成績很好。"], noTF: true }),
+  );
+
+  /* 外交官・間接問句 */
+  const WH2 = [["where", "the bank is", "is the bank"], ["where", "she lives", "does she live"], ["what time", "it is", "is it"], ["what time", "the store opens", "does the store open"], ["when", "the party starts", "does the party start"], ["when", "he came back", "did he come back"], ["why", "Tom was late", "was Tom late"], ["why", "they left early", "did they leave early"], ["how", "you made it", "did you make it"], ["how old", "your brother is", "is your brother"], ["how much", "the ticket costs", "does the ticket cost"], ["how many", "students there are", "are there students"], ["who", "the new teacher is", "is the new teacher"], ["what", "he said", "did he say"], ["what", "this word means", "does this word mean"], ["which", "bus goes to the zoo", "bus goes to the zoo"]];
+  const LEAD = ["Do you know", "Can you tell me", "I wonder", "I don't know", "Could you tell me", "I'm not sure"];
+  QG.dipl[0].push((r) => {
+    const [w, ok, bad] = r.pick(WH2.filter((x) => x[1] !== x[2])),
+      lead = r.pick(LEAD);
+    const end = /^(I wonder|I don't know|I'm not sure)/.test(lead) ? "." : "?";
+    return qMk(lead + " " + w + " ___" + end, ok, [bad, ok.split(" ").reverse().join(" "), "if " + bad], "間接問句用直述句語序：疑問詞 + 主詞 + 動詞。");
+  });
+
+  /* 詩人・元曲 */
+  QG.poet[3].push(
+    ...qCat({ 元曲四大家: ["關漢卿", "馬致遠", "白樸", "鄭光祖"], 不是元曲作家: ["李白", "杜甫", "蘇軾", "李清照", "陶淵明", "白居易"] }, (m) => m + "是不是元曲四大家之一？", (c, m) => (c === "元曲四大家" ? "下列哪一位是元曲四大家之一？" : "下列哪一位不是元曲作家？")),
+    ...qTab({ k: "元雜劇", f: [["作者"]], rows: ["〈竇娥冤〉|關漢卿", "〈漢宮秋〉|馬致遠", "〈梧桐雨〉|白樸", "〈倩女離魂〉|鄭光祖", "〈西廂記〉|王實甫", "〈救風塵〉|關漢卿"], noTF: true }),
+    ...qCat({ 唐詩: ["〈靜夜思〉", "〈登鸛雀樓〉", "〈春曉〉", "〈遊子吟〉"], 宋詞: ["〈水調歌頭〉", "〈聲聲慢〉", "〈滿江紅〉", "〈念奴嬌・赤壁懷古〉"], 元曲: ["〈天淨沙・秋思〉", "〈竇娥冤〉", "〈山坡羊・潼關懷古〉"] }, (m) => m + "屬於唐詩、宋詞還是元曲？", (c, m) => "下列哪一篇屬於" + c + "？", (c, m) => "下列哪一篇不屬於" + c + "？"),
+  );
+
+  /* 程式設計師・資訊倫理與安全 */
+  QG.coder[3].push(
+    ...qCat({ 屬於個人資料: ["姓名", "身分證字號", "出生日期", "住址", "電話號碼", "指紋"], 不屬於個人資料: ["今天的天氣", "學校的校訓", "公開的新聞標題", "國家的首都"] }, (m) => "「" + m + "」是不是個人資料？", (c, m) => "下列哪一個" + c + "？"),
+    ...qCat({ 安全的上網行為: ["不點來路不明的連結", "定期更新系統", "公共電腦用完要登出", "開啟雙重驗證", "下載軟體到官方網站"], 危險的上網行為: ["把密碼告訴好朋友", "在公開網站貼出住址", "所有網站用同一組密碼", "和網友單獨見面", "下載破解版軟體"] }, (m) => "「" + m + "」是安全還是危險的上網行為？", (c, m) => "下列哪一個是" + c + "？", (c, m) => "下列哪一個不是" + c + "？"),
+    ...qCat({ 尊重著作權: ["引用文章時註明出處", "使用公共領域的圖片", "購買正版音樂", "取得作者同意再轉載"], 侵害著作權: ["把別人的照片改成自己的名字", "影印整本書販賣", "上傳電影到網路給人下載", "抄襲別人的文章參加比賽"] }, (m) => "「" + m + "」是尊重還是侵害著作權？", (c, m) => "下列哪一個" + c + "？"),
+  );
+
+  /* 翻譯官・關係子句 */
+  const PERSON = ["the boy", "the girl", "the man", "the woman", "the teacher", "the doctor", "the singer", "my friend", "the student", "the farmer"];
+  const THING = ["the book", "the bike", "the cake", "the movie", "the house", "the dog", "the song", "the bag", "the car", "the picture"];
+  const CL = ["I met yesterday", "you told me about", "is standing over there", "everyone likes", "won the prize", "my mom bought", "is on the table", "I saw last week"];
+  QG.trans[2].push((r) => {
+    const per = r.int(0, 1),
+      n = r.pick(per ? PERSON : THING),
+      c = r.pick(CL);
+    const rel = per ? "who" : "which";
+    return qMk(n.charAt(0).toUpperCase() + n.slice(1) + " ___ " + c + " is very nice.", rel, [per ? "which" : "who", "what", "whose", "where"].slice(0, 3), per ? "先行詞是人，用 who（或 that）。" : "先行詞是事物或動物，用 which（或 that）。");
+  });
+
+  /* 健康管理師・青春期、安全生活 */
+  QG.healthm[0].push(
+    ...qTab({ k: "生殖器官", f: [["功能"]], rows: ["卵巢|產生卵和雌性激素", "輸卵管|精子和卵受精的地方", "子宮|胎兒發育的地方", "睪丸|產生精子和雄性激素", "輸精管|運送精子", "陰囊|保護睪丸、調節溫度"] }),
+    ...qCat({ 正確的經期保健: ["衛生棉 2～3 小時換一次", "經期可以做溫和的運動", "保持外陰部清潔", "記錄月經週期"], 錯誤的觀念: ["經期完全不能洗澡", "經期一定要吃冰", "衛生棉一整天不用換", "經痛一定是生病"] }, (m) => "「" + m + "」是正確的經期保健嗎？", (c, m) => "下列哪一個是" + c + "？"),
+    ...qCat({ 青春期常見的心理變化: ["在意別人怎麼看自己", "想要更多自主空間", "情緒起伏比較大", "對異性產生好奇"], 不是青春期特有的: ["需要喝水", "會肚子餓", "需要睡覺"] }, (m) => "「" + m + "」是青春期常見的心理變化嗎？", (c, m) => "下列哪一個是" + c + "？"),
+  );
+  QG.healthm[3].push(
+    (r) => {
+      const S = ["拉（拉開安全插銷）", "瞄（瞄準火源底部）", "壓（壓下握把）", "掃（左右掃射）"],
+        i = r.int(0, 2);
+      return qMk("滅火器使用口訣「拉、瞄、壓、掃」中，" + S[i] + "的下一步是？", S[i + 1], S.filter((x, j) => j !== i + 1 && j !== i).concat(["丟（把滅火器丟向火）"]), "拉插銷 → 瞄火源底部 → 壓握把 → 左右掃射。");
+    },
+    ...qCat({ 正確的交通安全行為: ["騎腳踏車戴安全帽", "過馬路走斑馬線", "等綠燈才過馬路", "坐車繫安全帶", "晚上騎車開車燈"], 危險的交通行為: ["闖紅燈", "邊騎車邊看手機", "從停著的公車前面突然穿越", "騎車雙載不戴安全帽", "在大貨車旁邊並行"] }, (m) => "「" + m + "」是安全還是危險的？", (c, m) => "下列哪一個是" + c + "？", (c, m) => "下列哪一個不是" + c + "？"),
+    ...qTab({ k: "火災逃生", f: [["正確做法"]], rows: ["濃煙中|低姿勢爬行，用溼毛巾掩住口鼻", "門把很燙|不要開門，到窗邊或陽台求救", "電梯|火災時不能搭", "身上著火|停、躺、滾", "逃出後|不要再回去拿東西", "報案|撥打 119"] }),
+  );
+
+  /* 運動教練・運動計畫與運動傷害 */
+  QG.coach[3].push(
+    ...qCat({ "頻率（F）": ["一週運動三次", "每天都快走", "週一、三、五去游泳"], "強度（I）": ["運動到有點喘但還能說話", "心跳達到最大心跳率的 70%", "用更重的啞鈴"], "時間（T）": ["每次運動 30 分鐘", "跑步 20 分鐘", "一次練習一小時"], "類型（T）": ["選擇游泳", "改做重量訓練", "加入跳繩"] }, (m) => "「" + m + "」屬於 FITT 的哪一項？", (c, m) => "下列哪一個屬於 FITT 的" + c + "？"),
+    (r) => {
+      const age = r.int(12, 18),
+        lo = r.pick([50, 60]),
+        hi = r.pick([70, 80, 85]);
+      const mx = 220 - age;
+      return qMk(age + " 歲的學生，目標心跳區間是最大心跳率的 " + lo + "%～" + hi + "%，大約是每分鐘幾下？", Math.round((mx * lo) / 100) + "～" + Math.round((mx * hi) / 100) + " 下", [lo + "～" + hi + " 下", Math.round((220 * lo) / 100) + "～" + Math.round((220 * hi) / 100) + " 下", Math.round((mx * lo) / 100) + 20 + "～" + (Math.round((mx * hi) / 100) + 20) + " 下"], "最大心跳率約 220 − " + age + " = " + mx + "。");
+    },
+    ...qCat({ 應該冰敷: ["剛扭傷的腳踝", "撞到瘀青腫起來", "運動後肌肉拉傷"], 不應該做的事: ["扭傷後立刻熱敷", "抽筋時用力捶打", "中暑時繼續在太陽下運動", "扭傷後馬上用力按摩"] }, (m) => "「" + m + "」的處理是否正確？", (c, m) => (c === "應該冰敷" ? "下列哪一種情況應該冰敷？" : "下列哪一個是錯誤的處理？")),
+  );
+
+  /* 公務員・民主與憲法、地方自治 */
+  QG.civ[0].push(
+    ...qCat({ 總統制: ["美國"], 內閣制: ["英國", "日本", "德國"], 雙首長制: ["法國"] }, (m) => m + "的政府體制最接近哪一種？", (c, m) => "下列哪一個國家採" + c + "？"),
+    ...qTab({ k: "民主原則", f: [["說明"]], rows: ["國民主權|權力來自人民", "多數決|少數服從多數", "尊重少數|多數決時也要保障少數的權利", "定期改選|民選官員有任期，要定期選舉", "政黨輪替|透過選舉更換執政黨", "司法獨立|法官依法審判，不受干涉", "新聞自由|媒體可以自由報導、監督政府"] }),
+  );
+  const CTY = [["臺北市", "直轄市"], ["新北市", "直轄市"], ["桃園市", "直轄市"], ["臺中市", "直轄市"], ["臺南市", "直轄市"], ["高雄市", "直轄市"], ["基隆市", "市"], ["新竹市", "市"], ["嘉義市", "市"], ["新竹縣", "縣"], ["苗栗縣", "縣"], ["彰化縣", "縣"], ["南投縣", "縣"], ["雲林縣", "縣"], ["嘉義縣", "縣"], ["屏東縣", "縣"], ["宜蘭縣", "縣"], ["花蓮縣", "縣"], ["臺東縣", "縣"], ["澎湖縣", "縣"], ["金門縣", "縣"], ["連江縣", "縣"]];
+  QG.civ[2].push(
+    (r) => {
+      const [c, t] = r.pick(CTY);
+      const head = t === "直轄市" ? "直轄市長" : t === "市" ? "市長" : "縣長";
+      return qMk(c + "的地方首長職稱是？", head, ["直轄市長", "市長", "縣長", "鄉長"].filter((x) => x !== head), c + "屬於" + t + "。");
+    },
+    ...qCat({ 民選: ["直轄市長", "縣長", "鄉長", "鎮長", "里長", "市議員", "立法委員"], 官派: ["直轄市的區長", "行政院長", "部長"] }, (m) => m + "是民選還是官派？", (c, m) => "下列哪一個是" + c + "的？"),
+  );
+
+  /* 歷史學家・明清與東亞 */
+  QG.hist[2].push(
+    ...qTab({ k: "人物", f: [["事蹟"]], rows: ["朱元璋|建立明朝", "鄭和|七次下西洋", "戚繼光|在東南沿海抗擊倭寇", "利瑪竇|來華傳教，帶來西方科學", "郎世寧|清朝宮廷畫家，融合中西畫法", "康熙皇帝|平定三藩、開創盛世", "乾隆皇帝|在位時實施一口通商", "豐臣秀吉|統一日本後出兵朝鮮", "德川家康|建立江戶幕府"] }),
+    ...qTab({ k: "制度或事物", f: [["說明"]], rows: ["八旗制度|清朝的軍事和社會組織", "軍機處|清朝雍正時設立，處理機要事務", "海禁|明朝限制人民出海貿易", "鎖國|日本江戶幕府限制對外往來", "朱子學|宋明理學的一派，影響東亞", "《四庫全書》|乾隆時編修的大型叢書", "朝鮮通信使|朝鮮派往日本的使節"] }),
+  );
+
+  /* 舞台導演・舞蹈與肢體 */
+  QG.director[2].push(
+    ...qCat({ 芭蕾: ["足尖站立", "〈天鵝湖〉", "〈胡桃鉗〉"], 現代舞: ["追求自由表達", "瑪莎・葛蘭姆", "雲門舞集的作品"], 民族舞蹈: ["原住民的豐年祭舞蹈", "客家采茶舞", "扇子舞"], 街舞: ["霹靂舞", "嘻哈舞", "鎖舞"] }, (m) => "「" + m + "」和哪一類舞蹈最有關？", (c, m) => "下列哪一個和" + c + "最有關？", (c, m) => "下列哪一個和" + c + "無關？"),
+    ...qTab({ k: "舞團或人物", f: [["說明"]], rows: ["雲門舞集|林懷民創立，臺灣第一個職業現代舞團", "〈行草〉|雲門舞集作品，把書法化成舞蹈", "原舞者|傳承臺灣原住民樂舞", "布拉瑞揚舞團|排灣族編舞家創立", "鄧肯|被稱為現代舞之母", "瑪莎・葛蘭姆|美國現代舞大師"] }),
+  );
+})();
+
 // ===== js/data/coop.js =====
 // =====================================================================
 // 合作委託（鎮長的大工程）：每個工程要 2～3 種職業，每個人回答自己職業那一題，全部答對才完成。
@@ -19675,8 +19778,8 @@ function roomsBody() {
       .map((m) => xb((MP.cm === m ? "✔ " : "") + MODEN[m], 'data-cm="' + m + '"', "chip"))
       .join("") +
     '</div><div style="font-size:13px;margin:4px 0">科目：' +
-    Object.keys(SUBN)
-      .map((s) => xb((MP.cs === s ? "✔ " : "") + SUBN[s], 'data-cs="' + s + '"', "chip"))
+    [...Object.keys(SUBN), ...(typeof mpCareerSubs === "function" ? mpCareerSubs() : [])]
+      .map((s) => xb((MP.cs === s ? "✔ " : "") + (typeof mpSubName === "function" ? mpSubName(s) : SUBN[s]), 'data-cs="' + s + '"', "chip"))
       .join("") +
     "</div>" +
     xb("⚔ 建立房間", 'data-mk="1"') +
@@ -19691,7 +19794,7 @@ function roomsBody() {
               '<div class="ec"><b>' +
               MODEN[r.mode] +
               "</b>・" +
-              SUBN[r.sub] +
+              mpSubName(r.sub) +
               "　房主：" +
               esc(clean(r.hostNick || "")) +
               "　" +
@@ -19859,7 +19962,7 @@ async function hostTick() {
     if (!all && Date.now() < r.cur.dl) return;
     HBUSY = true;
     const qd = arrv(r.qs)[r.round],
-      it = Z[qd.z].q[qd.i],
+      it = mpItem(qd),
       correct = Array.isArray(it) ? arrv(qd.perm).indexOf(0) : it.a ? 0 : 1,
       up = { reveal: true, correct };
     let right = 0,
@@ -19965,7 +20068,7 @@ function roomBody() {
     '<div class="ec"><b>' +
     MODEN[r.mode] +
     "</b>・" +
-    SUBN[r.sub] +
+    mpSubName(r.sub) +
     "　｜　房間代碼 " +
     esc(MP.rid.slice(-5)) +
     "</div>";
@@ -20008,7 +20111,7 @@ function roomBody() {
         : '<div class="ec" style="font-size:13px">等待房主開始…</div>');
   } else if (r.state === "play" && r.qs) {
     const qd = arrv(r.qs)[r.round],
-      it = Z[qd.z].q[qd.i],
+      it = mpItem(qd),
       isA = Array.isArray(it),
       opts = isA ? arrv(qd.perm).map((k) => it[k + 1]) : ["○　正確", "✕　錯誤"];
     if (r.mode === "coop") {
@@ -20036,7 +20139,7 @@ function roomBody() {
       " / " +
       arrv(r.qs).length +
       " 題　【" +
-      esc(Z[qd.z].n) +
+      esc(mpSubj(qd)) +
       '】<span id="rtt" style="float:right"></span></div><div class="pb" style="margin:4px 0 8px"><i id="rtime" style="width:100%"></i></div><div style="font-size:17px;margin-bottom:8px">' +
       esc(isA ? it[0] : it.q) +
       "</div>" +
@@ -26705,7 +26808,7 @@ function arenaQ() {
   if (!r || !r.qs) return null;
   const qd = arrv(r.qs)[r.round];
   if (!qd) return null;
-  const it = Z[qd.z].q[qd.i],
+  const it = mpItem(qd),
     isA = Array.isArray(it);
   return {
     it,
@@ -26713,7 +26816,7 @@ function arenaQ() {
     text: isA ? it[0] : it.q,
     opts: isA ? arrv(qd.perm).map((k) => it[k + 1]) : ["○ 正確", "✕ 錯誤"],
     exp: isA ? it[4] : it.e,
-    subj: Z[qd.z].n,
+    subj: mpSubj(qd),
   };
 }
 function myZone() {
@@ -26865,7 +26968,7 @@ function drawStation(mode) {
   if (f) {
     const [, rr] = f,
       ids = Object.keys(rr.players || {});
-    lines.push(SUBN[rr.sub] + "　" + ids.length + "/4 人" + (rr.state === "play" ? "（進行中）" : ""));
+    lines.push(mpSubName(rr.sub) + "　" + ids.length + "/4 人" + (rr.state === "play" ? "（進行中）" : ""));
     ids.forEach((id) => lines.push((id === rr.host ? "👑 " : "・") + clean(rr.players[id].nick || "冒險者")));
     lines.push(
       MP.rid === f[0] ? (rr.host === MP.uid ? "按 ↑ 開始！" : "等待房主開始…") : "按 ↑ 加入",
@@ -31405,6 +31508,78 @@ function dgWhere(id) {
   const _ab = carAbList;
   carAbList = function (id) {
     return _ab(id) + '<div style="font-size:12px;color:#7a5a3a;margin-top:4px">📜 職業副本：' + dgWhere(id) + "（設成目前職業時，每天最多 " + DG_MAX + " 次委託 +1）</div>";
+  };
+}
+
+// ===== js/ext/mp-career.js =====
+// 多人職業副本（2026-11-21）：多人大廳的競技台、合作台可以選「🎓 職業副本」，題目來自那個職業的題庫（qgen）。
+// 房間的 sub = "c:職業代號"。題庫題目每次隨機產生，所以由房主把題目文字放進房間資料 qs[k].g = [題目, 正解, 錯1, 錯2]，
+// 其他人照著顯示（原本的章節題只存 {z, i}，各自從 Z 讀取）。
+// 獎勵：結束時如果房間的職業就是自己的「目前職業」，算一次職業副本（委託 +1，見 dungeon.js 的每日上限）。
+function mpItem(qd) {
+  return qd && qd.g ? arrv(qd.g) : Z[qd.z].q[qd.i];
+}
+function mpSubj(qd) {
+  return qd && qd.g ? qd.n || "職業副本" : Z[qd.z].n;
+}
+function mpSubName(sub) {
+  if (typeof sub === "string" && sub.startsWith("c:")) {
+    const c = CAREER[sub.slice(2)];
+    return c ? "🎓 " + c.n + "副本" : "職業副本";
+  }
+  return SUBN[sub] || "綜合";
+}
+{
+  const _pq = pickQ;
+  pickQ = function (sub, used) {
+    if (typeof sub === "string" && sub.startsWith("c:") && typeof qgPool === "function") {
+      const id = sub.slice(2);
+      for (let k = 0; k < 20; k++) {
+        const it = qgPool(id, null, 1)[0];
+        if (!it || used.has(it.q)) continue;
+        used.add(it.q);
+        return { z: 0, i: 0, perm: [0, 1, 2].sort(() => Math.random() - 0.5), g: [it.q, it.o[0], it.o[1], it.o[2]], n: CAREER[id].n };
+      }
+    }
+    return _pq(sub, used);
+  };
+}
+// 可以開職業副本的職業：自己考到正式以上、而且有題庫
+const mpCareerSubs = () => CAREERS.filter((c) => carLv(c.id) >= 1 && typeof qbHas === "function" && qbHas(c.id)).map((c) => "c:" + c.id);
+// 大廳台子的選單多出職業副本
+{
+  const _la = lobbyAsk;
+  lobbyAsk = function (title, text, btns) {
+    if (/建立房間$/.test(title) && Array.isArray(btns) && typeof MP !== "undefined") {
+      const mode = (title.indexOf(MODEN.race) === 0 ? "race" : "coop");
+      const extra = mpCareerSubs().map((s) => [
+        "🎓　" + mpSubName(s).replace(/^🎓 /, "") + "（職業副本）",
+        () => {
+          MP.world = true;
+          MP.cm = mode;
+          MP.cs = s;
+          roomCreate();
+        },
+      ]);
+      if (extra.length) text += "　也可以選你考到證照的職業，開「職業副本」：題目來自該職業的題庫，完成後算一次職業副本。";
+      btns = [...btns, ...extra];
+    }
+    return _la(title, text, btns);
+  };
+}
+// 結束時的職業副本獎勵
+{
+  const _rf = roomFinish;
+  roomFinish = async function (r) {
+    const res = await _rf(r);
+    try {
+      if (r && typeof r.sub === "string" && r.sub.startsWith("c:") && r.players && r.players[MP.uid]) {
+        const id = r.sub.slice(2);
+        if (carCurOk() === id && typeof dgGive === "function") dgGive("多人" + CAREER[id].n + "副本", 20);
+        else if (CR.have[id]) setTimeout(() => msg("把「" + CAREER[id].n + "」設成目前職業，多人副本才會累積委託", 260), 1800);
+      }
+    } catch (e) {}
+    return res;
   };
 }
 
